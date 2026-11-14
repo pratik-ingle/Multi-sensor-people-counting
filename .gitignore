@@ -1,0 +1,7 @@
+# Python environment (recreate with: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt)
+.venv/
+__pycache__/
+*.pyc
+
+# Generated simulation runs and screenshots (regenerate with scripts/simulate.py and scripts/run_baseline.py)
+data/

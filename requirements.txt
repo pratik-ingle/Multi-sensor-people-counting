@@ -1,0 +1,9 @@
+# Tested with: numpy 2.5.4, scipy 1.18.1, scikit-learn 1.9.1, matplotlib 3.11.2, PyYAML 6.0.3,
+# moderngl 5.13.0, Pillow 13.0.0 on Python 3.13.
+numpy>=2.0
+scipy>=1.13
+scikit-learn>=1.5
+matplotlib>=3.8
+PyYAML>=6.0
+moderngl>=5.10   # thermal camera rendering (needs an OpenGL 3.3 GPU; runs headless via EGL)
+Pillow>=10.0

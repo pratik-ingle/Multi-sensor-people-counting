@@ -1,0 +1,108 @@
+# Synthetic furniture showroom monitored by ceiling-mounted TI IWR6843AOP radars and thermal cameras.
+seed: 7
+frame_rate_hz: 10        # TI 3D People Tracking typically runs at 10-20 fps
+warmup_s: 240            # let the crowd fill the store before recording starts
+duration_s: 300          # recorded seconds
+
+layout:
+  width: 30.0            # metres along x
+  depth: 20.0            # metres along y
+  grid_res: 0.25         # walking-navigation grid
+  entrance: [1.0, 0.2, 4.0, 1.2]     # [x0, y0, x1, y1]
+  exit: [26.0, 0.2, 29.0, 1.2]
+  # Furniture. type selects the 3D model; reflective = metal / glass (radar multipath ghosts);
+  # seating = people sit on it (sensor returns inside its footprint are real).
+  obstacles:
+    - {name: lamp_display,  type: lamp_table,  box: [0.2, 6.0, 0.9, 14.0],   height: 1.0}
+    - {name: shelf_west,    type: shelf,       box: [5.5, 5.0, 6.5, 15.0],   height: 2.0, reflective: true}
+    - {name: shelf_east,    type: shelf,       box: [23.5, 5.0, 24.5, 15.0], height: 2.0, reflective: true}
+    - {name: sofa_island,   type: sofa_island, box: [11.0, 8.0, 14.0, 12.0], height: 0.9, seating: true}
+    - {name: bed_island,    type: bed_island,  box: [16.0, 8.0, 19.0, 12.0], height: 0.7, seating: true}
+    - {name: kitchen_wall,  type: kitchen,     box: [9.0, 17.6, 21.0, 18.4], height: 2.2, reflective: true}
+    - {name: checkout_desk, type: desk,        box: [20.0, 2.0, 24.0, 3.0],  height: 1.1}
+  # Browsing areas. weight = attractiveness, dwell_median_s = typical time spent once there.
+  # seats: where customers sit down to try furniture (floor spot y, body offset into the furniture).
+  zones:
+    - {name: lighting, box: [1.0, 6.0, 5.0, 14.0],    weight: 1.5, dwell_median_s: 25}
+    - {name: sofas,    box: [10.0, 5.0, 15.0, 8.7],   weight: 3.0, dwell_median_s: 50,
+       seats: {x: [11.45, 12.15, 12.85, 13.55], y: 7.75, offset_y: 0.70, height: 0.45, facing_deg: -90,
+               backrest: true, sit_prob: 0.4, dwell_scale: 1.5}}
+    - {name: beds,     box: [15.5, 11.3, 20.0, 15.0], weight: 2.0, dwell_median_s: 40,
+       seats: {x: [16.9, 17.5, 18.1], y: 12.35, offset_y: -0.70, height: 0.55, facing_deg: 90,
+               sit_prob: 0.35, dwell_scale: 1.3}}
+    - {name: kitchens, box: [9.0, 15.2, 21.0, 17.4],  weight: 3.0, dwell_median_s: 60}
+    - {name: storage,  box: [25.0, 6.0, 29.0, 14.0],  weight: 1.5, dwell_median_s: 30}
+    - {name: checkout, box: [20.0, 3.2, 24.0, 5.0],   weight: 1.0, dwell_median_s: 20, final: true}
+
+crowd:
+  group_arrivals_per_min: 14         # raise this for a busier store
+  group_size_probs: [0.45, 0.35, 0.12, 0.08]   # P(group size = 1, 2, 3, 4)
+  zones_per_visit: [2, 4]
+  checkout_prob: 0.6
+  walk_speed: [0.8, 1.4]             # m/s
+  dwell_sigma: 0.6                   # log-normal spread of dwell times
+  max_people: 250
+
+# IWR6843AOP point-cloud model. Values are approximate; replace them with numbers
+# measured from your own sensors once you have real recordings.
+radar:
+  fov_az_deg: 60           # half-angle
+  fov_el_deg: 60
+  min_range: 0.4
+  max_range: 8.0
+  range_res: 0.07          # m
+  vel_res: 0.08            # m/s per Doppler bin
+  max_vel: 4.0             # unambiguous radial speed, m/s
+  ang_res_deg: 29          # ~4-element aperture in az and el (12 virtual antennas)
+  merge_ang_deg: 15        # detection cell width after Capon beamforming
+  snr_ref_db: 24           # per-scatterer SNR at ref_range, boresight
+  ref_range: 3.0
+  cfar_db: 12
+  beam_edge_loss_db: 6
+  static_mode: scr         # scr = static clutter removal (still people vanish) | minor_motion
+  minor_motion_pd: 0.15
+  max_points: 800
+  false_alarm_rate: 2.0    # per sensor per frame
+  multipath_prob: 0.10
+  multipath_loss_db: 6
+
+sensors:
+  layout: grid             # one radar every 5 m, looking straight down from 3 m
+  x: [2.5, 7.5, 12.5, 17.5, 22.5, 27.5]
+  y: [2.5, 7.5, 12.5, 17.5]
+  height: 3.0
+  yaw_deg: 0
+  pitch_deg: -90
+  calibration_error: {pos_m: 0.05, angle_deg: 1.0}   # pipeline sees slightly wrong poses, like a real install
+
+# Room thermal environment.
+environment:
+  ambient_c: 22.0
+  hvac_swing_c: 0.4                  # slow air-conditioning cycle
+  hvac_period_s: 1200
+  sun_patch: {box: [0.0, 0.0, 9.0, 2.5], delta_c: 4.0}   # sunlit floor behind the storefront glass
+  imprint_peak_c: 6.0                # seat warming after a long sit
+  imprint_tau_s: 120                 # how fast upholstery cools afterwards
+
+# Ceiling thermal cameras. camera: lepton31r | lepton35 | mlx90640_wide (see mmw/thermal_camera.py).
+# A 95 deg Lepton at 3 m covers ~4.4 x 3.0 m at torso height, so the grid is denser than the radars'.
+# Columns sit over the aisles: a camera above 2 m shelving only sees the top shelf.
+thermal:
+  enabled: true
+  camera: lepton31r
+  overrides: {}                      # e.g. {netd_k: 0.08, offset_k: 2.0}
+  layout: grid
+  x: [2.9, 8.6, 12.85, 17.1, 21.35, 27.2]
+  y: [1.65, 4.6, 7.55, 10.5, 13.45, 16.4]
+  height: 3.0
+  yaw_deg: 0
+  pitch_deg: -90
+  calibration_error: {pos_m: 0.03, angle_deg: 0.5}
+  save_every_frames: 10              # raw frames of all cameras every N radar frames (1 Hz); 0 = off
+  detection:
+    z_plane_m: 1.4                   # height at which detections are placed (upper body)
+    fg_k: 1.0
+    peak_k: 2.0
+    peak_window_m: 0.40
+    min_area_m2: 0.04
+    bin: 2

@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Showroom Sensing Live</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --line: #30363d; --text: #e6edf3; --muted: #8b949e;
+    --floor: #11161d; --obstacle: #2d333b; --true: #8ab4f8; --missed: #ff6b6b;
+    --radar: #ff7b72; --thermal: #ffa657; --fused: #39c5bb; --ghost: #d2a8ff; --good: #3fb950; --bad: #f85149;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; padding: 12px 16px;
+           border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .status { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 16px; padding: 16px; }
+  @media (max-width: 1000px) { main { grid-template-columns: minmax(0, 1fr); } }
+  #stage { min-width: 0; }
+  #floor { display: block; width: 100%; border-radius: 8px; background: var(--bg); cursor: crosshair; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; color: var(--muted); font-size: 12.5px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { display: inline-block; width: 12px; height: 12px; }
+  aside { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+             margin: 0 0 8px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border: 1px solid var(--line); border-radius: 6px;
+         overflow: hidden; margin-bottom: 10px; }
+  .seg button { border: 0; border-radius: 0; background: #21262d; padding: 6px 0; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { color: #0d1117; font-weight: 600; }
+  .seg button.on[data-p=radar] { background: var(--radar); } .seg button.on[data-p=thermal] { background: var(--thermal); }
+  .seg button.on[data-p=fused] { background: var(--fused); }
+  .seg button:disabled { color: #484f58; cursor: not-allowed; }
+  .counters { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; gap: 6px; }
+  .counters .n { font-size: 30px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .counters .l { color: var(--muted); font-size: 12px; }
+  #nTrue { color: var(--true); }
+  #chart { width: 100%; height: 120px; display: block; margin-top: 10px; }
+  .stats { color: var(--muted); font-size: 12.5px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  .stats b { color: var(--text); font-weight: 600; }
+  .allpipes { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12.5px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
+  td { padding: 3px 0; }
+  td.num { text-align: right; width: 34px; }
+  td.bar { width: 45%; padding-left: 10px; }
+  .bars { position: relative; height: 12px; }
+  .bars div { position: absolute; left: 0; height: 5px; border-radius: 2px; }
+  .bars .bt { top: 0; background: var(--true); } .bars .be { top: 7px; }
+  .controls { display: grid; gap: 10px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button, select { background: #21262d; color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+                   padding: 5px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--muted); }
+  input[type=range] { flex: 1; min-width: 120px; accent-color: var(--thermal); }
+  label { color: var(--muted); font-size: 12.5px; }
+  .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+  .checks label { display: flex; gap: 6px; align-items: center; color: var(--text); }
+  .hint { color: var(--muted); font-size: 12px; margin: 0; }
+  #camCard img { width: 100%; image-rendering: pixelated; border-radius: 4px; display: block; background: #000; }
+  #camScale { height: 8px; border-radius: 2px; margin-top: 6px; }
+  .scaleLabels { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+  .x { background: none; border: 0; color: var(--muted); padding: 0 4px; font-size: 16px; }
+  #camCanvas { width: 100%; image-rendering: pixelated; border-radius: 4px; display: block; background: #000; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--text); }
+  #acc th { color: var(--muted); font-weight: 500; text-align: right; font-size: 12px; padding-bottom: 4px; }
+  #acc th:first-child, #acc td:first-child { text-align: left; }
+  #acc td { text-align: right; }
+  #accNote { text-transform: none; letter-spacing: 0; font-weight: 400; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Showroom people counting (simulated, live)</h1>
+  <div class="status" id="status">connecting…</div>
+</header>
+<main>
+  <section id="stage">
+    <canvas id="floor"></canvas>
+    <div class="legend">
+      <span><i class="sw" style="background:linear-gradient(90deg,#000,#5a008c,#dc323c,#fa8c00,#ffd728,#fff)"></i>thermal image (20–36 °C)</span>
+      <span><i class="sw" style="background:linear-gradient(90deg,#58a6ff,#c9d1d9,#ff7b72)"></i>radar points (toward ↔ away)</span>
+      <span><b style="color:var(--thermal)">+</b>thermal detection</span>
+      <span><i class="sw" style="border:2px solid var(--true);border-radius:50%"></i>true person, found</span>
+      <span><i class="sw" style="border:2px solid var(--missed);border-radius:50%"></i>missed</span>
+      <span><i class="sw" style="border:2px dashed var(--true);border-radius:50%"></i>seated</span>
+      <span><i class="sw" id="lgTrack" style="background:var(--fused);border-radius:50%"></i>track</span>
+      <span><i class="sw" style="background:var(--ghost);border-radius:50%"></i>false track</span>
+      <span><i class="sw" style="background:#ff7b72;clip-path:polygon(50% 0,100% 100%,0 100%)"></i>radar</span>
+      <span><i class="sw" style="background:var(--thermal)"></i>thermal camera (click one)</span>
+    </div>
+  </section>
+  <aside>
+    <div class="card">
+      <div class="seg" id="pipes">
+        <button data-p="radar">Radar</button><button data-p="thermal">Thermal</button><button data-p="fused">Fused</button>
+      </div>
+      <div class="counters">
+        <div><div class="n" id="nTrue">–</div><div class="l">true</div></div>
+        <div><div class="n" id="nEst">–</div><div class="l" id="nEstLbl">estimate</div></div>
+        <div><div class="n" id="nErr">–</div><div class="l">error</div></div>
+      </div>
+      <canvas id="chart"></canvas>
+      <div class="allpipes" id="allpipes"></div>
+      <div class="stats" id="stats"></div>
+    </div>
+    <div class="card">
+      <h2><span>Accuracy so far <span id="accNote"></span></span></h2>
+      <table id="acc"><thead><tr><th>pipeline</th><th>count error</th><th>precision</th><th>recall</th></tr></thead><tbody></tbody></table>
+      <p class="hint">Count error = average |estimate − true| (and as % of people present). Precision = share of tracks that are real people. Recall = share of people found.</p>
+    </div>
+    <div class="card" id="camCard" hidden>
+      <h2><span id="camTitle">Thermal camera</span><button class="x" id="camClose" title="Close">×</button></h2>
+      <img id="camImg" alt="Raw thermal camera output">
+      <canvas id="camCanvas" width="480" height="360" hidden></canvas>
+      <div id="camScale"></div>
+      <div class="scaleLabels"><span id="tLo"></span><span id="tHi"></span></div>
+      <p class="hint" id="camInfo"></p>
+    </div>
+    <div class="card">
+      <h2>Zones: true vs <span id="zoneLbl">estimate</span></h2>
+      <table id="zones"></table>
+    </div>
+    <div class="card controls">
+      <h2>Controls</h2>
+      <div id="replayCtl" class="controls" hidden>
+        <div class="row">
+          <button id="rplay">Pause</button>
+          <select id="rspeed" aria-label="playback speed">
+            <option value="0.5">0.5×</option><option value="1" selected>1× real time</option>
+            <option value="2">2×</option><option value="4">4×</option>
+          </select>
+          <span class="hint" id="rtime"></span>
+        </div>
+        <input type="range" id="rseek" min="0" max="0" step="1" aria-label="position in recording" style="width:100%">
+        <p class="hint">Recorded run of the simulator, replayed in your browser. GitHub Pages only hosts static files, so it
+          cannot run the GPU simulation. For the fully live version with crowd and radar controls, run
+          <code>scripts/live_server.py</code> locally.</p>
+      </div>
+      <div id="liveCtl" class="controls">
+      <div class="row">
+        <button id="pause">Pause</button>
+        <select id="speed" aria-label="speed">
+          <option value="1">1× real time</option><option value="2">2×</option>
+          <option value="4">4×</option><option value="0">As fast as possible</option>
+        </select>
+        <button id="reset" title="New crowd, new random seed">Restart</button>
+      </div>
+      <div>
+        <label for="arrivals">Crowd: <b id="arrivalsVal"></b> groups arriving per minute</label>
+        <div class="row"><input type="range" id="arrivals" min="2" max="60" step="1"></div>
+        <p class="hint">The store takes a few simulated minutes to fill up or empty out.</p>
+      </div>
+      <div>
+        <label for="static">How the radar treats people standing still</label>
+        <div class="row">
+          <select id="static">
+            <option value="scr">Static clutter removal (TI default)</option>
+            <option value="minor_motion">Minor-motion detection</option>
+          </select>
+        </div>
+      </div>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="o_mosaic" checked>thermal image</label>
+        <label><input type="checkbox" id="o_tdets" checked>thermal detections</label>
+        <label><input type="checkbox" id="o_points" checked>radar points</label>
+        <label><input type="checkbox" id="o_rejected">rejected radar points</label>
+        <label><input type="checkbox" id="o_truth" checked>true people</label>
+        <label><input type="checkbox" id="o_tracks" checked>tracks</label>
+        <label><input type="checkbox" id="o_trails" checked>trails</label>
+        <label><input type="checkbox" id="o_cams" checked>thermal cameras</label>
+        <label><input type="checkbox" id="o_coverage">radar coverage</label>
+      </div>
+      <div class="row">
+        <label for="colorBy">Color radar points by</label>
+        <select id="colorBy"><option value="doppler">Doppler</option><option value="sensor">sensor</option><option value="height">height</option></select>
+      </div>
+    </div>
+  </aside>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const ZONE_COLORS = ["#2a9d8f", "#e76f51", "#8338ec", "#f4a261", "#3a86ff", "#adb5bd", "#d62828", "#52b788"];
+const PIPE_COLOR = { radar: "#ff7b72", thermal: "#ffa657", fused: "#39c5bb" };
+const PIPE_NAME = { radar: "radar", thermal: "thermal", fused: "fused" };
+let L = null, frame = null, pipe = "radar", selCam = -1, camTimer = null;
+// MODE "live": frames stream from scripts/live_server.py. MODE "replay": a recording made by
+// scripts/export_replay.py sits next to this page (replay/meta.json), e.g. on GitHub Pages.
+let MODE = "live", R = null, rf = 0, playing = true, rspeed = 1, seekPending = false, replayMosaic = null, camSprite = null;
+const acc = {};
+const geom = { s: 1, ox: 0, oy: 0, W: 0, H: 0, dpr: 1 };
+const baseLayer = document.createElement("canvas"), overLayer = document.createElement("canvas");
+const opts = { mosaic: true, tdets: true, points: true, rejected: false, truth: true, tracks: true, trails: true,
+               cams: true, coverage: false, colorBy: "doppler" };
+const trails = new Map();
+const hist = [];
+let mosaicImg = null;  // last fully decoded thermal image; a new one replaces it only once decoded (no flicker)
+let zmax = 5, lastArrival = 0, fpsEMA = 0;
+
+const X = x => geom.ox + x * geom.s;
+const Y = y => geom.H - geom.oy - y * geom.s;
+
+async function post(body) {
+  const r = await fetch("/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return r.json();
+}
+
+function applyControls(c) {
+  $("#pause").textContent = c.paused ? "Resume" : "Pause";
+  $("#speed").value = String(c.speed);
+  $("#arrivals").value = c.arrivals_per_min;
+  $("#arrivalsVal").textContent = Math.round(c.arrivals_per_min);
+  $("#static").value = c.static_mode;
+}
+
+function setPipe(p) {
+  pipe = p;
+  document.querySelectorAll("#pipes button").forEach(b => b.classList.toggle("on", b.dataset.p === p));
+  $("#nEstLbl").textContent = PIPE_NAME[p];
+  $("#zoneLbl").textContent = PIPE_NAME[p];
+  $("#nEst").style.color = PIPE_COLOR[p];
+  $("#lgTrack").style.background = PIPE_COLOR[p];
+  document.querySelectorAll(".be").forEach(e => e.style.background = PIPE_COLOR[p]);
+  trails.clear();
+  if (frame) onFrame(true);
+}
+
+async function init() {
+  try {
+    const r = await fetch("replay/meta.json", { cache: "no-store" });
+    if (r.ok) { R = await r.json(); MODE = "replay"; }
+  } catch (e) { /* no recording next to the page: live mode */ }
+  L = MODE === "replay" ? R.layout : await (await fetch("/layout")).json();
+  if (MODE === "live") applyControls(L.controls);
+  resetAcc();
+  const th = L.thermal;
+  $("#title").textContent = `Showroom people counting: ${L.sensors.length} radars` +
+    (th ? ` + ${th.positions.length} thermal cameras` : "") +
+    (MODE === "replay" ? " (simulated, recorded replay)" : " (simulated, live)");
+  document.querySelectorAll("#pipes button").forEach(b => {
+    b.disabled = !L.pipelines.includes(b.dataset.p);
+    b.onclick = () => setPipe(b.dataset.p);
+  });
+  if (!th) { for (const k of ["mosaic", "tdets", "cams"]) { opts[k] = false; $("#o_" + k).checked = false; $("#o_" + k).disabled = true; } }
+  else {
+    $("#camScale").style.background = `linear-gradient(90deg, ${th.palette.map(c => `rgb(${c})`).join(",")})`;
+    $("#tLo").textContent = th.t_range[0] + " °C"; $("#tHi").textContent = th.t_range[1] + " °C";
+  }
+  const tb = $("#zones");
+  L.zones.forEach((z, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><span style="color:${ZONE_COLORS[i % ZONE_COLORS.length]}">■</span> ${z.name}</td>
+      <td class="num" id="zt${i}">–</td><td class="num" id="ze${i}">–</td>
+      <td class="bar"><div class="bars"><div class="bt" id="bt${i}"></div><div class="be" id="be${i}"></div></div></td>`;
+    tb.appendChild(tr);
+  });
+  bindControls();
+  setPipe(L.pipelines.includes("fused") ? "fused" : "radar");
+  resize();
+  window.addEventListener("resize", resize);
+  if (MODE === "replay") startReplay(); else connect();
+}
+
+// ------------------------------------------------------------------ replay mode
+const fmtT = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+const pad3 = i => String(i).padStart(3, "0");
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const chunkCache = new Map();
+
+function loadImage(src) {
+  return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
+}
+
+function decodeFrame(j) {  // recording stores lengths in centimetres
+  const m = a => a.map(v => v / 100);
+  const pipes = {};
+  for (const [k, v] of Object.entries(j.pipes)) {
+    pipes[k] = { est: v.est, ze: v.ze, d: v.d,
+                 tr: { id: v.tr.id, x: m(v.tr.x), y: m(v.tr.y), vx: m(v.tr.vx), vy: m(v.tr.vy), ok: v.tr.ok } };
+  }
+  return { f: j.f, t: j.t, true: j.true, zt: j.zt, cams: j.cams, ms: j.ms, pipes,
+           p: { x: m(j.p.x), y: m(j.p.y), z: m(j.p.z), v: m(j.p.v), s: j.p.s, k: j.p.k },
+           g: { x: m(j.g.x), y: m(j.g.y), r: m(j.g.r), b: j.g.b, st: j.g.st },
+           td: { x: m(j.td.x), y: m(j.td.y) } };
+}
+
+function loadChunk(i) {
+  if (!chunkCache.has(i)) {
+    chunkCache.set(i, (async () => {
+      const [j, img] = await Promise.all([
+        fetch(`replay/chunk_${pad3(i)}.json`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }),
+        L.thermal ? loadImage(`replay/mosaic_${pad3(i)}.jpg`) : Promise.resolve(null)]);
+      return { frames: j.frames.map(decodeFrame), sprite: img };
+    })());
+  }
+  return chunkCache.get(i);
+}
+
+async function showReplayFrame(i) {
+  const ci = Math.floor(i / R.chunk), ch = await loadChunk(ci);
+  if (ci + 1 < R.n_chunks) loadChunk(ci + 1);  // prefetch while this one plays
+  frame = ch.frames[i - ci * R.chunk];
+  if (ch.sprite) replayMosaic = { img: ch.sprite, i: Math.floor((i - ci * R.chunk) / R.mosaic_every) };
+  onFrame();
+  $("#rseek").value = i;
+  $("#rtime").textContent = `${fmtT(frame.t)} / ${fmtT(R.seconds)}`;
+}
+
+function resetHistory() { trails.clear(); hist.length = 0; resetAcc(); }
+
+async function startReplay() {
+  $("#replayCtl").hidden = false;
+  $("#liveCtl").hidden = true;
+  $("#rseek").max = R.n_frames - 1;
+  $("#rplay").onclick = () => { playing = !playing; $("#rplay").textContent = playing ? "Pause" : "Play"; };
+  $("#rspeed").onchange = e => { rspeed = +e.target.value; };
+  $("#rseek").oninput = e => { rf = +e.target.value; resetHistory(); seekPending = true; };
+  while (true) {
+    const t0 = performance.now();
+    if (playing || seekPending) {
+      seekPending = false;
+      try { await showReplayFrame(rf); }
+      catch (e) { $("#status").textContent = `could not load the recording (${e}); retrying…`; await sleep(2000); continue; }
+      if (playing && ++rf >= R.n_frames) { rf = 0; resetHistory(); }  // loop
+    }
+    await sleep(Math.max(0, 1000 / (R.fps * rspeed) - (performance.now() - t0)));
+  }
+}
+
+// ------------------------------------------------------------------ running accuracy (both modes)
+function resetAcc() { for (const k of L.pipelines) acc[k] = { n: 0, abs: 0, tru: 0, gtN: 0, gtF: 0, trN: 0, trR: 0 }; }
+
+function accumulate(f) {
+  for (const k of L.pipelines) {
+    const a = acc[k], P = f.pipes[k];
+    a.n++; a.abs += Math.abs(P.est - f.true); a.tru += f.true;
+    a.gtN += P.d.length; for (const v of P.d) a.gtF += v;
+    a.trN += P.tr.ok.length; for (const v of P.tr.ok) a.trR += v;
+  }
+}
+
+function renderAcc() {
+  const first = acc[L.pipelines[0]];
+  if (!first || !first.n) return;
+  $("#accNote").textContent = `· over the last ${fmtT(first.n * L.dt)}`;
+  const pct = x => `${(100 * x).toFixed(0)}%`;
+  $("#acc tbody").innerHTML = L.pipelines.map(k => {
+    const a = acc[k], mae = a.abs / a.n;
+    return `<tr><td style="color:${PIPE_COLOR[k]}">${PIPE_NAME[k]}</td>` +
+      `<td>${mae.toFixed(1)} <span class="hint">(${pct(mae / Math.max(1, a.tru / a.n))})</span></td>` +
+      `<td>${a.trN ? pct(a.trR / a.trN) : "–"}</td><td>${a.gtN ? pct(a.gtF / a.gtN) : "–"}</td></tr>`;
+  }).join("");
+}
+
+function connect() {
+  const es = new EventSource("/stream");
+  es.onmessage = e => { frame = JSON.parse(e.data); onFrame(); };
+  es.onerror = () => { $("#status").textContent = "disconnected, retrying…"; };
+}
+
+function bindControls() {
+  $("#pause").onclick = async () => applyControls(await post({ paused: $("#pause").textContent === "Pause" }));
+  $("#speed").onchange = async e => applyControls(await post({ speed: +e.target.value }));
+  $("#reset").onclick = async () => {
+    $("#status").textContent = "restarting (warming up a new crowd)…";
+    trails.clear(); hist.length = 0; resetAcc();
+    applyControls(await post({ reset: true }));
+  };
+  $("#arrivals").oninput = e => { $("#arrivalsVal").textContent = e.target.value; };
+  $("#arrivals").onchange = async e => applyControls(await post({ arrivals_per_min: +e.target.value }));
+  $("#static").onchange = async e => applyControls(await post({ static_mode: e.target.value }));
+  for (const k of ["mosaic", "tdets", "points", "rejected", "truth", "tracks", "trails", "cams", "coverage"]) {
+    $("#o_" + k).onchange = e => {
+      opts[k] = e.target.checked;
+      if (k === "mosaic" && MODE === "live") post({ thermal_view: opts.mosaic });
+      buildStatic(); draw();
+    };
+  }
+  $("#colorBy").onchange = e => { opts.colorBy = e.target.value; draw(); };
+  $("#floor").onclick = e => {
+    if (!L.thermal || !opts.cams) return;
+    const r = e.target.getBoundingClientRect();
+    const wx = (e.clientX - r.left - geom.ox) / geom.s, wy = (geom.H - geom.oy - (e.clientY - r.top)) / geom.s;
+    let best = -1, bd = 1.0;
+    L.thermal.positions.forEach((p, k) => { const d = Math.hypot(p[0] - wx, p[1] - wy); if (d < bd) { bd = d; best = k; } });
+    if (best >= 0) openCam(best);
+  };
+  $("#camClose").onclick = () => { selCam = -1; $("#camCard").hidden = true; clearTimeout(camTimer); buildStatic(); draw(); };
+}
+
+function openCam(k) {
+  selCam = k;
+  const th = L.thermal, p = th.positions[k];
+  $("#camCard").hidden = false;
+  $("#camTitle").textContent = `Thermal camera ${k}`;
+  $("#camInfo").textContent = `${th.camera} · ${th.res[0]}×${th.res[1]} px · ${th.hfov}° lens · ${th.fps} Hz · ` +
+    `${Math.round(th.netd_k * 1000)} mK noise · at (${p[0].toFixed(1)}, ${p[1].toFixed(1)}) m, ${p[2]} m high. ` +
+    `Raw sensor output, including fixed-pattern noise and shutter freezes` +
+    (MODE === "replay" ? ` (replayed at ${(R.fps / R.cam_every).toFixed(0)} frames/s).` : ".");
+  clearTimeout(camTimer);
+  if (MODE === "replay") {
+    $("#camImg").hidden = true;
+    $("#camCanvas").hidden = false;
+    camSprite = null;
+    loadImage(`replay/cams/cam_${String(k).padStart(2, "0")}.jpg`).then(im => { if (selCam === k) { camSprite = im; drawCam(); } });
+  } else {
+    const refresh = () => {  // ask for the next image only once the previous one has arrived
+      if (selCam !== k) return;
+      const im = $("#camImg");
+      im.onload = im.onerror = () => { camTimer = setTimeout(refresh, 250); };
+      im.src = `/camera/${k}.png?t=${Date.now()}`;
+    };
+    refresh();
+  }
+  buildStatic(); draw();
+}
+
+function drawCam() {  // replay: current frame of the selected camera's sprite sheet
+  if (MODE !== "replay" || !camSprite || selCam < 0 || !frame) return;
+  const c = $("#camCanvas"), ctx = c.getContext("2d"), [tw, th] = R.cam_tile;
+  const i = Math.min(Math.floor(frame.f / R.cam_every), R.cam_frames - 1);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(camSprite, (i % R.cam_cols) * tw, Math.floor(i / R.cam_cols) * th, tw, th, 0, 0, c.width, c.height);
+}
+
+function resize() {
+  const c = $("#floor");
+  const cssW = $("#stage").clientWidth;
+  const cssH = Math.round(cssW * (L.depth + 1.2) / (L.width + 1.2));
+  const dpr = window.devicePixelRatio || 1;
+  c.style.height = cssH + "px";
+  c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr);
+  Object.assign(geom, { W: cssW, H: cssH, dpr });
+  const pad = 0.6;
+  geom.s = Math.min(cssW / (L.width + 2 * pad), cssH / (L.depth + 2 * pad));
+  geom.ox = (cssW - geom.s * L.width) / 2;
+  geom.oy = (cssH - geom.s * L.depth) / 2;
+  const ch = $("#chart");
+  ch.width = Math.round(ch.clientWidth * dpr); ch.height = Math.round(ch.clientHeight * dpr);
+  buildStatic(); draw(); drawChart();
+}
+
+function rect(ctx, b) { ctx.rect(X(b.x0), Y(b.y1), (b.x1 - b.x0) * geom.s, (b.y1 - b.y0) * geom.s); }
+function layerCtx(cv) {
+  cv.width = Math.round(geom.W * geom.dpr); cv.height = Math.round(geom.H * geom.dpr);
+  const ctx = cv.getContext("2d"); ctx.setTransform(geom.dpr, 0, 0, geom.dpr, 0, 0); return ctx;
+}
+
+function buildStatic() {
+  const thermalOn = opts.mosaic && L.thermal;
+  // base: floor, grid, radar coverage (under the thermal image)
+  let ctx = layerCtx(baseLayer);
+  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--floor");
+  ctx.fillRect(X(0), Y(L.depth), L.width * geom.s, L.depth * geom.s);
+  ctx.strokeStyle = "rgba(139,148,158,0.08)"; ctx.lineWidth = 1;
+  for (let x = 1; x < L.width; x++) { ctx.beginPath(); ctx.moveTo(X(x), Y(0)); ctx.lineTo(X(x), Y(L.depth)); ctx.stroke(); }
+  for (let y = 1; y < L.depth; y++) { ctx.beginPath(); ctx.moveTo(X(0), Y(y)); ctx.lineTo(X(L.width), Y(y)); ctx.stroke(); }
+  if (opts.coverage) {
+    const cv = L.coverage, c = cv.cell;
+    for (let j = 0; j < cv.ny; j++) for (let i = 0; i < cv.nx; i++) {
+      const n = cv.data[j * cv.nx + i];
+      if (n) { ctx.fillStyle = `rgba(56,139,253,${Math.min(0.07 * n, 0.4)})`; ctx.fillRect(X(i * c), Y((j + 1) * c), c * geom.s + 0.5, c * geom.s + 0.5); }
+    }
+  }
+  // overlay: furniture, zones, doors, sensors (over the thermal image)
+  ctx = layerCtx(overLayer);
+  L.zones.forEach((z, i) => {
+    const col = ZONE_COLORS[i % ZONE_COLORS.length];
+    ctx.beginPath(); rect(ctx, z);
+    if (!thermalOn) { ctx.fillStyle = col + "14"; ctx.fill(); }
+    ctx.setLineDash([6, 4]); ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = col; ctx.font = "600 12px system-ui, sans-serif"; ctx.textBaseline = "top";
+    ctx.fillText(z.name, X(z.x0) + 4, Y(z.y1) + 4);
+  });
+  for (const o of L.obstacles) {
+    ctx.save(); ctx.beginPath(); rect(ctx, o);
+    if (!thermalOn) { ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--obstacle"); ctx.fill(); }
+    ctx.strokeStyle = thermalOn ? "rgba(201,209,217,0.45)" : "#484f58"; ctx.lineWidth = 1; ctx.stroke();
+    if (o.reflective && !thermalOn) {
+      ctx.clip(); ctx.strokeStyle = "rgba(139,148,158,0.45)";
+      const x0 = X(o.x0), y0 = Y(o.y1), w = (o.x1 - o.x0) * geom.s, h = (o.y1 - o.y0) * geom.s;
+      for (let k = -h; k < w; k += 7) { ctx.beginPath(); ctx.moveTo(x0 + k, y0 + h); ctx.lineTo(x0 + k + h, y0); ctx.stroke(); }
+    }
+    ctx.restore();
+  }
+  for (const [b, name] of [[L.entrance, "IN"], [L.exit, "OUT"]]) {
+    ctx.beginPath(); rect(ctx, b); ctx.strokeStyle = "#ffd166"; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.fillStyle = "#ffd166"; ctx.font = "600 11px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(name, X((b.x0 + b.x1) / 2), Y((b.y0 + b.y1) / 2)); ctx.textAlign = "left";
+  }
+  ctx.strokeStyle = "#6e7681"; ctx.lineWidth = 1.5; ctx.strokeRect(X(0), Y(L.depth), L.width * geom.s, L.depth * geom.s);
+  for (const s of L.sensors) {
+    const x = X(s[0]), y = Y(s[1]);
+    ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x + 5.5, y + 4); ctx.lineTo(x - 5.5, y + 4); ctx.closePath();
+    ctx.fillStyle = "#ff7b72"; ctx.fill(); ctx.strokeStyle = "#0d1117"; ctx.lineWidth = 1; ctx.stroke();
+  }
+  if (L.thermal && opts.cams) {
+    L.thermal.positions.forEach((p, k) => {
+      const fp = L.thermal.footprints[k];
+      if (k === selCam) {
+        ctx.beginPath(); fp.forEach((q, i) => i ? ctx.lineTo(X(q[0]), Y(q[1])) : ctx.moveTo(X(q[0]), Y(q[1])));
+        ctx.closePath(); ctx.strokeStyle = "#ffa657"; ctx.lineWidth = 2; ctx.stroke();
+      }
+      ctx.fillStyle = k === selCam ? "#ffffff" : "#ffa657"; ctx.strokeStyle = "#0d1117"; ctx.lineWidth = 1;
+      ctx.fillRect(X(p[0]) - 4, Y(p[1]) - 4, 8, 8); ctx.strokeRect(X(p[0]) - 4, Y(p[1]) - 4, 8, 8);
+    });
+  }
+  ctx.fillStyle = "#8b949e"; ctx.fillRect(X(0.3), Y(-0.35), 5 * geom.s, 2);
+  ctx.font = "11px system-ui, sans-serif"; ctx.textBaseline = "bottom"; ctx.fillText("5 m", X(0.3) + 5 * geom.s + 4, Y(-0.35) + 5);
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function mix(c1, c2, t) { return `rgb(${lerp(c1[0], c2[0], t) | 0},${lerp(c1[1], c2[1], t) | 0},${lerp(c1[2], c2[2], t) | 0})`; }
+const BLUE = [88, 166, 255], GREY = [201, 209, 217], RED = [255, 123, 114];
+const VIRIDIS = [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]];
+function pointColor(p, i) {
+  if (opts.colorBy === "sensor") return `hsl(${(p.s[i] * 137.5) % 360},75%,62%)`;
+  if (opts.colorBy === "height") {
+    const t = Math.max(0, Math.min(0.999, p.z[i] / 2.2)) * 4, k = Math.floor(t);
+    return mix(VIRIDIS[k], VIRIDIS[k + 1], t - k);
+  }
+  const t = Math.max(-1, Math.min(1, p.v[i] / 1.5));
+  return t < 0 ? mix(GREY, BLUE, -t) : mix(GREY, RED, t);
+}
+
+function draw() {
+  const c = $("#floor"), ctx = c.getContext("2d");
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.drawImage(baseLayer, 0, 0);
+  ctx.setTransform(geom.dpr, 0, 0, geom.dpr, 0, 0);
+  if (opts.mosaic && L.thermal) {
+    ctx.imageSmoothingEnabled = true;
+    if (MODE === "replay" && replayMosaic) {
+      const [tw, th] = R.mosaic_tile, i = replayMosaic.i;
+      ctx.drawImage(replayMosaic.img, (i % R.mosaic_cols) * tw, Math.floor(i / R.mosaic_cols) * th, tw, th,
+                    X(0), Y(L.depth), L.width * geom.s, L.depth * geom.s);
+    } else if (mosaicImg) {
+      ctx.drawImage(mosaicImg, X(0), Y(L.depth), L.width * geom.s, L.depth * geom.s);
+    }
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(overLayer, 0, 0);
+  ctx.setTransform(geom.dpr, 0, 0, geom.dpr, 0, 0);
+  if (!frame) return;
+  const p = frame.p, g = frame.g, P = frame.pipes[pipe];
+  if (!P) return;
+  const tr = P.tr;
+  if (opts.rejected) {
+    ctx.fillStyle = "rgba(110,118,129,0.6)";
+    for (let i = 0; i < p.x.length; i++) if (!p.k[i]) ctx.fillRect(X(p.x[i]) - 1, Y(p.y[i]) - 1, 2, 2);
+  }
+  if (opts.points) {
+    for (let i = 0; i < p.x.length; i++) if (p.k[i]) { ctx.fillStyle = pointColor(p, i); ctx.fillRect(X(p.x[i]) - 1.5, Y(p.y[i]) - 1.5, 3, 3); }
+  }
+  if (opts.tdets && frame.td) {
+    ctx.strokeStyle = "#ffa657"; ctx.lineWidth = 1.6;
+    for (let i = 0; i < frame.td.x.length; i++) {
+      const x = X(frame.td.x[i]), y = Y(frame.td.y[i]);
+      ctx.beginPath(); ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y); ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 4); ctx.stroke();
+    }
+  }
+  if (opts.truth) {
+    for (let i = 0; i < g.x.length; i++) {
+      ctx.beginPath(); ctx.arc(X(g.x[i]), Y(g.y[i]), Math.max(3, g.r[i] * geom.s), 0, 2 * Math.PI);
+      ctx.setLineDash(g.st[i] ? [3, 2] : []);
+      ctx.strokeStyle = P.d[i] ? "#8ab4f8" : "#ff6b6b"; ctx.lineWidth = P.d[i] ? 1.3 : 2.2; ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+  const col = PIPE_COLOR[pipe];
+  if (opts.trails) {
+    ctx.lineWidth = 1.5; ctx.strokeStyle = col + "66";
+    for (const pts of trails.values()) {
+      if (pts.length < 2) continue;
+      ctx.beginPath(); ctx.moveTo(X(pts[0][0]), Y(pts[0][1]));
+      for (const q of pts) ctx.lineTo(X(q[0]), Y(q[1]));
+      ctx.stroke();
+    }
+  }
+  if (opts.tracks) {
+    for (let i = 0; i < tr.x.length; i++) {
+      const x = X(tr.x[i]), y = Y(tr.y[i]), c2 = tr.ok[i] ? col : "#d2a8ff";
+      ctx.strokeStyle = c2; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(X(tr.x[i] + tr.vx[i] * 0.8), Y(tr.y[i] + tr.vy[i] * 0.8)); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 2 * Math.PI); ctx.fillStyle = c2; ctx.fill();
+      ctx.strokeStyle = "#0d1117"; ctx.lineWidth = 1; ctx.stroke();
+    }
+  }
+}
+
+function drawChart() {
+  const c = $("#chart"), ctx = c.getContext("2d"), dpr = geom.dpr;
+  const W = c.clientWidth, H = c.clientHeight;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  if (hist.length < 2) return;
+  const t1 = hist[hist.length - 1].t, t0 = t1 - 60;
+  const keys = ["true", ...L.pipelines];
+  const ymax = Math.max(10, ...hist.flatMap(h => keys.map(k => h[k] || 0))) * 1.1;
+  const px = t => 28 + (W - 32) * (t - t0) / 60, py = v => H - 14 - (H - 20) * v / ymax;
+  ctx.strokeStyle = "#30363d"; ctx.fillStyle = "#8b949e"; ctx.font = "10px system-ui, sans-serif"; ctx.lineWidth = 1;
+  for (const v of [0, Math.round(ymax / 2), Math.round(ymax * 0.9)]) {
+    ctx.beginPath(); ctx.moveTo(28, py(v)); ctx.lineTo(W - 4, py(v)); ctx.stroke(); ctx.fillText(v, 2, py(v) + 3);
+  }
+  ctx.fillText("last 60 s", W - 50, H - 2);
+  for (const k of keys) {
+    ctx.strokeStyle = k === "true" ? "#8ab4f8" : PIPE_COLOR[k];
+    ctx.globalAlpha = k === "true" || k === pipe ? 1 : 0.45;
+    ctx.lineWidth = k === "true" || k === pipe ? 2 : 1.1; ctx.beginPath();
+    hist.forEach((h, i) => (i ? ctx.lineTo(px(h.t), py(h[k])) : ctx.moveTo(px(h.t), py(h[k]))));
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function onFrame(redrawOnly) {
+  const f = frame;
+  const P = f.pipes[pipe];
+  if (!P) return;
+  if (!redrawOnly) {
+    const now = performance.now();
+    if (lastArrival) fpsEMA = fpsEMA ? 0.9 * fpsEMA + 0.1 * (1000 / (now - lastArrival)) : 1000 / (now - lastArrival);
+    lastArrival = now;
+    if (f.mosaic) { const im = new Image(); im.onload = () => { mosaicImg = im; draw(); }; im.src = f.mosaic; }
+    if (hist.length && f.t < hist[hist.length - 1].t) { hist.length = 0; resetAcc(); }
+    const h = { t: f.t, true: f.true };
+    for (const k of L.pipelines) h[k] = f.pipes[k].est;
+    hist.push(h);
+    while (hist.length && hist[0].t < f.t - 60) hist.shift();
+    accumulate(f);
+  }
+  const seen = new Set();
+  P.tr.id.forEach((id, i) => {
+    seen.add(id);
+    const t = trails.get(id) || [];
+    if (!redrawOnly) { t.push([P.tr.x[i], P.tr.y[i]]); if (t.length > 40) t.shift(); }
+    trails.set(id, t);
+  });
+  for (const id of trails.keys()) if (!seen.has(id)) trails.delete(id);
+
+  const err = P.est - f.true;
+  $("#nTrue").textContent = f.true; $("#nEst").textContent = P.est;
+  const e = $("#nErr"); e.textContent = (err > 0 ? "+" : "") + err;
+  e.style.color = Math.abs(err) <= Math.max(2, 0.1 * f.true) ? "var(--good)" : "var(--bad)";
+  $("#allpipes").innerHTML = L.pipelines.map(k =>
+    `<span style="color:${PIPE_COLOR[k]}">${PIPE_NAME[k]} <b>${f.pipes[k].est}</b></span>`).join("") +
+    `<span style="color:#8ab4f8">true <b>${f.true}</b></span>`;
+  let w = 0, wf = 0, b = 0, bf = 0, s = 0, sf = 0;
+  for (let i = 0; i < f.g.b.length; i++) {
+    if (f.g.st[i]) { s++; sf += P.d[i]; } else if (f.g.b[i]) { b++; bf += P.d[i]; } else { w++; wf += P.d[i]; }
+  }
+  const fp = P.tr.ok.filter(v => !v).length, pct = (a, n) => n ? Math.round(100 * a / n) + "%" : "–";
+  $("#stats").innerHTML = `found: walking <b>${pct(wf, w)}</b> · standing <b>${pct(bf, b)}</b> · seated <b>${pct(sf, s)}</b>` +
+    ` (${sf}/${s}) · false tracks <b>${fp}</b>`;
+  zmax = Math.max(zmax * 0.998, ...f.zt, ...P.ze, 5);
+  f.zt.forEach((v, i) => {
+    $("#zt" + i).textContent = v; $("#ze" + i).textContent = P.ze[i];
+    $("#ze" + i).style.color = PIPE_COLOR[pipe];
+    $("#bt" + i).style.width = (100 * v / zmax) + "%"; $("#be" + i).style.width = (100 * P.ze[i] / zmax) + "%";
+  });
+  const mm = Math.floor(f.t / 60), ss = Math.floor(f.t % 60).toString().padStart(2, "0");
+  $("#status").textContent = MODE === "replay"
+    ? `replay ${mm}:${ss} / ${fmtT(R.seconds)} · ${f.p.x.length} radar points · ${f.cams} thermal frames this tick · ` +
+      `recorded ${R.recorded}`
+    : `t = ${mm}:${ss} · ${f.p.x.length} radar points · ${f.cams} thermal frames this tick · ` +
+      `${fpsEMA.toFixed(1)} fps · compute ${f.ms} ms/frame`;
+  renderAcc(); drawCam();
+  draw(); drawChart();
+}
+
+init();
+</script>
+</body>
+</html>
